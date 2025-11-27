@@ -1,0 +1,17 @@
+version: "3.9"
+
+services:
+  mailhog:
+    image: mailhog/mailhog:latest
+    container_name: mailhog
+    restart: unless-stopped
+    ports:
+      - "8025:8025"     # Web UI
+      - "1025:1025"     # SMTP Server
+    environment:
+      MH_HOSTNAME: "mailhog.local"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
