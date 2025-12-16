@@ -17,6 +17,83 @@ $userEmail = $_SESSION['mfa_email'] ?? '';
 $userName = $_SESSION['mfa_name'] ?? '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    // Handle AJAX MFA code verification
+    if (isset($_POST['ajax']) && $_POST['ajax'] === '1') {
+        header('Content-Type: application/json');
+
+        $code = sanitizeInput($_POST['code'] ?? '');
+        $mfaFlag = $_POST['mfa'] ?? 'false'; // VULNERABLE: Client sends mfa flag!
+
+        logActivity('MFA_VERIFY_ATTEMPT', "Code: $code, MFA Flag: $mfaFlag");
+
+        // CRITICAL VULNERABILITY: Server trusts client-provided 'mfa' parameter
+        // If client sends mfa=true, server assumes MFA is valid without verification!
+        if ($mfaFlag === 'true') {
+            // Client claims MFA is verified - trust it blindly!
+            logActivity('MFA_BYPASS', "Client sent mfa=true, bypassing verification for: $userEmail");
+
+            // Complete login WITHOUT validating the code
+            $_SESSION['user_id'] = $userId;
+            $_SESSION['email'] = $userEmail;
+            $_SESSION['full_name'] = $userName;
+            $_SESSION['role'] = $_SESSION['mfa_role'];
+            $_SESSION['login_time'] = time();
+
+            // Clean up MFA session variables
+            unset($_SESSION['mfa_user_id']);
+            unset($_SESSION['mfa_pending']);
+            unset($_SESSION['mfa_email']);
+            unset($_SESSION['mfa_name']);
+            unset($_SESSION['mfa_role']);
+
+            echo json_encode([
+                'success' => true,
+                'message' => 'Login successful',
+                'redirect' => ($_SESSION['role'] === 'admin') ? 'admin_dashboard.php' : 'dashboard.php'
+            ]);
+            exit();
+        }
+
+        // If mfa=false (or not true), actually verify the code
+        if (empty($code)) {
+            echo json_encode(['success' => false, 'message' => 'Please enter the verification code.']);
+            exit();
+        } elseif (!preg_match('/^\d{4}$/', $code)) {
+            echo json_encode(['success' => false, 'message' => 'Invalid code format. Please enter 4 digits.']);
+            exit();
+        } else {
+            // Verify the MFA code
+            if (verifyMFACode($userId, $code)) {
+                logActivity('MFA_SUCCESS', "User verified: $userEmail");
+
+                // Complete login after valid code
+                $_SESSION['user_id'] = $userId;
+                $_SESSION['email'] = $userEmail;
+                $_SESSION['full_name'] = $userName;
+                $_SESSION['role'] = $_SESSION['mfa_role'];
+                $_SESSION['login_time'] = time();
+
+                // Clean up MFA session variables
+                unset($_SESSION['mfa_user_id']);
+                unset($_SESSION['mfa_pending']);
+                unset($_SESSION['mfa_email']);
+                unset($_SESSION['mfa_name']);
+                unset($_SESSION['mfa_role']);
+
+                echo json_encode([
+                    'success' => true,
+                    'message' => 'Verification successful',
+                    'redirect' => ($_SESSION['role'] === 'admin') ? 'admin_dashboard.php' : 'dashboard.php'
+                ]);
+                exit();
+            } else {
+                logActivity('MFA_FAILED', "Invalid code for user: $userEmail");
+                echo json_encode(['success' => false, 'message' => 'Invalid or expired code.']);
+                exit();
+            }
+        }
+    }
+
     // Handle resend request
     if (isset($_POST['resend_code'])) {
         logActivity('MFA_RESEND_ATTEMPT', 'Resend code requested');
@@ -25,56 +102,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $success = "A new verification code has been sent to your email. Please check MailHog.";
         } else {
             $error = "Failed to send new verification code. Please try again.";
-        }
-    }
-    // Handle code verification
-    elseif (isset($_POST['code'])) {
-        logActivity('MFA_VERIFY_ATTEMPT', 'POST data received');
-
-        $code = sanitizeInput($_POST['code']);
-
-        if (empty($code)) {
-            $error = "Please enter the verification code.";
-            logActivity('MFA_FAILED', "Empty code");
-        } elseif (!preg_match('/^\d{4}$/', $code)) {
-            // Code must be exactly 4 digits
-            $error = "Invalid code format. Please enter 4 digits.";
-            logActivity('MFA_FAILED', "Invalid code format: $code");
-        } else {
-            // Code is valid 4-digit format
-            $extractedCode = $code;
-
-            if ($extractedCode !== null) {
-                // Verify the MFA code using extracted 4-digit code
-                if (verifyMFACode($userId, $extractedCode)) {
-                    // MFA successful - complete login
-                    $_SESSION['user_id'] = $userId;
-                    $_SESSION['email'] = $userEmail;
-                    $_SESSION['full_name'] = $userName;
-                    $_SESSION['role'] = $_SESSION['mfa_role'];
-                    $_SESSION['login_time'] = time();
-
-                    // Clean up MFA session variables
-                    unset($_SESSION['mfa_user_id']);
-                    unset($_SESSION['mfa_pending']);
-                    unset($_SESSION['mfa_email']);
-                    unset($_SESSION['mfa_name']);
-                    unset($_SESSION['mfa_role']);
-
-                    logActivity('MFA_SUCCESS', "User verified: $userEmail");
-
-                    // Redirect based on role
-                    if ($_SESSION['role'] === 'admin') {
-                        header("Location: admin_dashboard.php");
-                    } else {
-                        header("Location: dashboard.php");
-                    }
-                    exit();
-                } else {
-                    $error = "Invalid or expired code. Please try again.";
-                    logActivity('MFA_FAILED', "Invalid code for user: $userEmail");
-                }
-            }
         }
     }
 }
@@ -276,13 +303,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         <?php endif; ?>
         <tr>
             <td>
-                <form method="POST" action="verify_mfa.php">
+                <form method="POST" action="verify_mfa.php" id="mfaForm">
                     <label>Enter Verification Code:</label>
                     <div class="code-input-container">
                         <span class="code-prefix">FAST-</span>
-                        <input type="text" name="code" class="code-input" maxlength="4" pattern="[0-9]{4}" placeholder="XXXX" required autofocus inputmode="numeric">
+                        <input type="text" name="code" id="codeInput" class="code-input" maxlength="4" pattern="[0-9]{4}" placeholder="XXXX" required autofocus inputmode="numeric">
                     </div>
                     <div class="input-hint">Enter the 4-digit code from your email</div>
+                    <div id="ajaxError" style="display:none; background: #ffdddd; border: 1px solid #f00; padding: 10px; margin: 10px 0; border-radius: 4px;"></div>
 
                     <input type="submit" value="Verify & Login">
                 </form>
@@ -336,6 +364,43 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         // Start the timer when page loads
         updateTimer();
+
+        // VULNERABLE: AJAX-based MFA verification
+        // The client sends mfa=false in the request by default
+        // An attacker can intercept and change mfa=false to mfa=true to bypass verification!
+        document.getElementById('mfaForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+
+            const code = document.getElementById('codeInput').value;
+            const errorDiv = document.getElementById('ajaxError');
+
+            // CRITICAL VULNERABILITY: Client sends 'mfa' parameter in the request
+            // Server will trust this parameter! Attacker can change mfa=false to mfa=true
+            const requestBody = 'ajax=1&code=' + encodeURIComponent(code) + '&mfa=false';
+
+            // Send AJAX request to verify code
+            fetch('verify_mfa.php', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                },
+                body: requestBody  // Contains mfa=false - can be intercepted and changed!
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    // Redirect to dashboard
+                    window.location.href = data.redirect;
+                } else {
+                    errorDiv.textContent = data.message || 'Verification failed';
+                    errorDiv.style.display = 'block';
+                }
+            })
+            .catch(error => {
+                errorDiv.textContent = 'An error occurred. Please try again.';
+                errorDiv.style.display = 'block';
+            });
+        });
     </script>
 </body>
 </html>

@@ -1,0 +1,65 @@
+version: '3.8'
+
+services:
+  # MySQL Database Service
+  db:
+    image: mysql:8.0
+    container_name: fastlan-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpassword
+      MYSQL_DATABASE: employee_portal
+      MYSQL_USER: fastlan
+      MYSQL_PASSWORD: fastlan123
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./reset_database.sql:/docker-entrypoint-initdb.d/01-reset_database.sql
+      - ./add_mfa_table.sql:/docker-entrypoint-initdb.d/02-add_mfa_table.sql
+      - ./add_user_approval.sql:/docker-entrypoint-initdb.d/03-add_user_approval.sql
+    networks:
+      - fastlan-network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "fastlan", "-pfastlan123"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # PHP Web Application Service
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: fastlan-webapp
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./:/var/www/html
+      - ./logs:/var/www/html/logs
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - fastlan-network
+    environment:
+      - DB_HOST=db
+      - DB_USER=fastlan
+      - DB_PASS=fastlan123
+      - DB_NAME=employee_portal
+    command: >
+      sh -c "
+        echo 'Waiting for database to be ready...' &&
+        sleep 5 &&
+        echo 'Starting PHP server...' &&
+        php -S 0.0.0.0:8080
+      "
+
+networks:
+  fastlan-network:
+    driver: bridge
+
+volumes:
+  mysql_data:
+    driver: local

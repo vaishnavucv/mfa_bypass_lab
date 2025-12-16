@@ -23,45 +23,145 @@ A PHP-based employee portal with user authentication, project management, and ro
 ### Requirements
 - PHP 7.4 or higher
 - MySQL 5.7 or higher
-- Apache/Nginx web server
-- Burp Suite (for security testing)
+- Git (optional, for cloning)
+- Burp Suite (optional, for security testing)
 
-### Setup Instructions
+### Step-by-Step Setup on Ubuntu
 
-1. **Clone or Extract Files**
-   ```bash
-   cd /var/www/html
-   # or your web server document root
-   ```
+#### 1. Install Required Software
 
-2. **Configure Database**
-   - Open `config.php` and update database credentials if needed:
-     ```php
-     define('DB_HOST', 'localhost');
-     define('DB_USER', 'root');
-     define('DB_PASS', '');
-     define('DB_NAME', 'employee_portal');
-     ```
+```bash
+# Update package list
+sudo apt update
 
-3. **Import Database**
-   ```bash
-   mysql -u root -p < database.sql
-   ```
+# Install PHP and required extensions
+sudo apt install php php-cli php-mysql php-mbstring php-xml -y
 
-   Or use phpMyAdmin to import `database.sql`
+# Install MySQL Server
+sudo apt install mysql-server -y
 
-4. **Set Permissions**
-   ```bash
-   chmod 755 -R .
-   chmod 777 logs/
-   ```
+# Start and enable MySQL service
+sudo systemctl start mysql
+sudo systemctl enable mysql
 
-5. **Update Default Admin Password**
-   The default admin account uses:
-   - Email: `admin@fastlan.com`
-   - Password: `Admin@123`
+# Verify installations
+php -v
+mysql --version
+```
 
-   **IMPORTANT**: Login and change the admin password immediately!
+#### 2. Configure MySQL Database
+
+```bash
+# Secure MySQL installation (optional but recommended)
+sudo mysql_secure_installation
+
+# Login to MySQL as root
+sudo mysql -u root -p
+```
+
+Inside MySQL console, create the database:
+```sql
+CREATE DATABASE employee_portal;
+EXIT;
+```
+
+#### 3. Clone or Download the Project
+
+```bash
+# Navigate to your desired directory
+cd ~
+
+# If you have the project files, navigate to them
+cd /path/to/fastlan-mfa-webapp
+
+# Or clone from repository if available
+# git clone <repository-url>
+# cd fastlan-mfa-webapp
+```
+
+#### 4. Configure Database Connection
+
+Edit the `config.php` file and update database credentials:
+```bash
+nano config.php
+```
+
+Update these lines if needed:
+```php
+define('DB_HOST', 'localhost');
+define('DB_USER', 'root');
+define('DB_PASS', 'your_mysql_password');
+define('DB_NAME', 'employee_portal');
+```
+
+Save and exit (Ctrl+X, then Y, then Enter)
+
+#### 5. Import Database Schema
+
+```bash
+# Import the database.sql file
+mysql -u root -p employee_portal < database.sql
+
+# If you get permission errors, try with sudo
+sudo mysql -u root employee_portal < database.sql
+```
+
+#### 6. Set Permissions
+
+```bash
+# Make sure logs directory exists and is writable
+mkdir -p logs
+chmod 755 -R .
+chmod 777 logs/
+```
+
+#### 7. Run the Application
+
+Start PHP's built-in web server:
+```bash
+php -S localhost:8080
+```
+
+You should see output like:
+```
+[Mon Dec  9 10:30:00 2025] PHP 8.1.2 Development Server (http://localhost:8080) started
+```
+
+#### 8. Access the Application
+
+Open your web browser and navigate to:
+```
+http://localhost:8080
+```
+
+You will be redirected to the login page.
+
+#### 9. Login with Default Admin Account
+
+Use these credentials for first login:
+- **Email**: `admin@fastlan.com`
+- **Password**: `Admin@123`
+
+**IMPORTANT**: Change the admin password immediately after first login!
+
+### Running the Application
+
+Every time you want to run the application:
+
+```bash
+# Navigate to project directory
+cd /path/to/fastlan-mfa-webapp
+
+# Start PHP server
+php -S localhost:8080
+```
+
+To run on a different port:
+```bash
+php -S localhost:3000
+```
+
+To stop the server, press `Ctrl+C` in the terminal.
 
 ## Default Accounts
 

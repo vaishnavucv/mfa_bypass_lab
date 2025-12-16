@@ -1,0 +1,37 @@
+# Git files
+.git
+.gitignore
+
+# Documentation
+*.md
+.wiki
+
+# Logs
+logs/*.log
+
+# Backup files
+*.backup
+*.bak
+*.old
+
+# IDE files
+.vscode
+.idea
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Python cache
+__pycache__
+*.pyc
+*.pyo
+
+# Setup scripts (not needed in container)
+SETUP.sh
+
+# Test files
+burte-force.py
+test_connection.php
