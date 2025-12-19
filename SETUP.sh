@@ -78,39 +78,26 @@ echo ""
 echo "Step 3: Setting up database and user..."
 print_info "Creating database 'employee_portal' and user 'fastlan'..."
 
-# Try to create with stronger password first, fallback to adjusting password policy
-{
-sudo mysql << 'EOF'
--- Save current password policy
-SET @old_validate_password_policy = @@GLOBAL.validate_password.policy;
-SET @old_validate_password_length = @@GLOBAL.validate_password.length;
+# Detect which validate_password variables exist (handles both plugin and component names)
+PASSWORD_POLICY_VAR=$(sudo mysql -Nse "SHOW VARIABLES LIKE 'validate_password%policy%';" 2>/dev/null | awk '{print $1}' | head -n1)
+PASSWORD_LENGTH_VAR=$(sudo mysql -Nse "SHOW VARIABLES LIKE 'validate_password%length%';" 2>/dev/null | awk '{print $1}' | head -n1)
 
--- Temporarily set password policy to LOW to allow simple passwords
-SET GLOBAL validate_password.policy = LOW;
-SET GLOBAL validate_password.length = 6;
+if [ -n "$PASSWORD_POLICY_VAR" ] && [ -n "$PASSWORD_LENGTH_VAR" ]; then
+    print_info "Temporarily relaxing password policy to allow default credentials..."
+    PW_POLICY_ADJUSTMENTS="SET @old_validate_password_policy = @@GLOBAL.${PASSWORD_POLICY_VAR};
+SET @old_validate_password_length = @@GLOBAL.${PASSWORD_LENGTH_VAR};
+SET GLOBAL ${PASSWORD_POLICY_VAR} = 'LOW';
+SET GLOBAL ${PASSWORD_LENGTH_VAR} = 6;"
+    PW_POLICY_RESTORE="SET GLOBAL ${PASSWORD_POLICY_VAR} = @old_validate_password_policy;
+SET GLOBAL ${PASSWORD_LENGTH_VAR} = @old_validate_password_length;"
+else
+    print_info "validate_password plugin not available; skipping password policy changes"
+    PW_POLICY_ADJUSTMENTS="SELECT 'password policy plugin not available';"
+    PW_POLICY_RESTORE=""
+fi
 
--- Create the database
-DROP DATABASE IF EXISTS employee_portal;
-CREATE DATABASE employee_portal;
-
--- Create user 'fastlan' with password 'fastlan123'
-DROP USER IF EXISTS 'fastlan'@'localhost';
-CREATE USER 'fastlan'@'localhost' IDENTIFIED BY 'fastlan123';
-
--- Grant all privileges
-GRANT ALL PRIVILEGES ON employee_portal.* TO 'fastlan'@'localhost';
-FLUSH PRIVILEGES;
-
--- Restore password policy
-SET GLOBAL validate_password.policy = @old_validate_password_policy;
-SET GLOBAL validate_password.length = @old_validate_password_length;
-EOF
-} 2>/dev/null || {
-# Fallback for MySQL 5.7 or different password plugin name
-sudo mysql << 'EOF'
--- For MySQL 5.7 or older versions
-SET GLOBAL validate_password_policy = LOW;
-SET GLOBAL validate_password_length = 6;
+sudo mysql <<EOF
+$PW_POLICY_ADJUSTMENTS
 
 DROP DATABASE IF EXISTS employee_portal;
 CREATE DATABASE employee_portal;
@@ -120,23 +107,9 @@ CREATE USER 'fastlan'@'localhost' IDENTIFIED BY 'fastlan123';
 
 GRANT ALL PRIVILEGES ON employee_portal.* TO 'fastlan'@'localhost';
 FLUSH PRIVILEGES;
+
+$PW_POLICY_RESTORE
 EOF
-} 2>/dev/null || {
-# Last resort - try without sudo
-mysql -u root << 'EOF'
-SET GLOBAL validate_password.policy = LOW;
-SET GLOBAL validate_password.length = 6;
-
-DROP DATABASE IF EXISTS employee_portal;
-CREATE DATABASE employee_portal;
-
-DROP USER IF EXISTS 'fastlan'@'localhost';
-CREATE USER 'fastlan'@'localhost' IDENTIFIED BY 'fastlan123';
-
-GRANT ALL PRIVILEGES ON employee_portal.* TO 'fastlan'@'localhost';
-FLUSH PRIVILEGES;
-EOF
-}
 
 if [ $? -eq 0 ]; then
     print_success "Database and user created successfully"
